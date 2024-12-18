@@ -14,8 +14,8 @@
 //! To patch dependency one has to add the following
 //! to `Cargo.toml`
 //!
-//! ```toml
-//! [package.metadata.patch]
+//! ```
+//! //! [package.metadata.patch]
 //! crates = ["serde"]
 //! ```
 //!
@@ -234,25 +234,45 @@ pub fn run() -> anyhow::Result<()> {
         // apply patch
         info!("applying patch");
 
-        let custom_metadata = workspace.custom_metadata().into_iter().chain(
+        /*let custom_metadata = workspace.custom_metadata().into_iter().chain(
             workspace
                 .members()
                 .flat_map(|member| member.manifest().custom_metadata()),
-        );
+        );*/
 
-        let mut crates_to_patch = custom_metadata
-            .flat_map(|m| {
-                m.as_table()
-                    .and_then(|table| table.get("patch"))
-                    .into_iter()
-                    .flat_map(|patch| patch.as_table())
-                    .flat_map(|patch| patch.get("crates"))
-                    .filter_map(|crates| crates.as_array())
-            })
-            .flatten()
-            .flat_map(|s| s.as_str())
+        let manifest = std::fs::read_to_string(workspace.root_manifest())?;
+        let manifest_value: toml::Value = toml::from_str(&manifest)?;
+
+        let patch_metadata = manifest_value
+            .get("workspace")
+            .and_then(|ws| ws.get("package"))
+            .and_then(|pkg| pkg.get("metadata"))
+            .and_then(|md| md.get("patch"))
+            .and_then(|patch| patch.get("crates"))
+            .and_then(|crates| crates.as_array())
+            .ok_or_else(|| {
+                anyhow::anyhow!("`[workspace.package.metadata.patch]` is missing or invalid")
+            })?;
+
+        let mut crates_to_patch = patch_metadata
+            .iter()
+            .filter_map(|crate_name| crate_name.as_str())
             .map(|n| resolve.query(n).and_then(|id| pkg_set.get_one(id)))
             .collect::<Result<HashSet<_>>>()?;
+
+        /*let mut crates_to_patch = custom_metadata
+        .flat_map(|m| {
+            m.as_table()
+                .and_then(|table| table.get("patch"))
+                .into_iter()
+                .flat_map(|patch| patch.as_table())
+                .flat_map(|patch| patch.get("crates"))
+                .filter_map(|crates| crates.as_array())
+        })
+        .flatten()
+        .flat_map(|s| s.as_str())
+        .map(|n| resolve.query(n).and_then(|id| pkg_set.get_one(id)))
+        .collect::<Result<HashSet<_>>>()?;*/
 
         if args.force {
             info!("Cleaning up patch folder.");
